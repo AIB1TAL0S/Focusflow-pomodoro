@@ -113,19 +113,19 @@ export default function DashboardScreen() {
 
     setTasks(tasksData || []);
     setCategories(categoriesData || []);
-    
+
     const completedPomodoros = sessionsData?.reduce((sum, s) => sum + 1, 0) || 0;
     const focusMinutes = sessionsData?.reduce((sum, s) => sum + (s.actual_duration || s.planned_duration), 0) || 0;
     const pendingTasks = (tasksData || []).filter(t => t.status === 'pending').length;
-    
+
     setStats({ completedPomodoros, focusMinutes, pendingTasks });
-    
+
     const schedule = scheduleData && scheduleData.length > 0 ? scheduleData[0] : null;
     if (schedule) {
       setTodaySchedule(schedule);
       setGeneratedSchedule(schedule);
     }
-    
+
     setLoading(false);
     setRefreshing(false);
   };
@@ -319,24 +319,24 @@ export default function DashboardScreen() {
 
   const handleGenerateSchedule = async () => {
     if (!user || !preferences) return;
-    
+
     const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'scheduled');
     if (pendingTasks.length === 0) {
       Alert.alert('No Tasks', 'Create some tasks first to generate a schedule.');
       return;
     }
-    
+
     setScheduleLoading(true);
     const today = new Date().toISOString().split('T')[0];
-    
+
     const { schedule, error } = await generateSchedule(
       pendingTasks,
       preferences as UserPreferences,
       today
     );
-    
+
     setScheduleLoading(false);
-    
+
     if (error) {
       Alert.alert('Error', error.message);
     } else if (schedule) {
@@ -346,14 +346,14 @@ export default function DashboardScreen() {
 
   const handleAcceptSchedule = async () => {
     if (!user || !generatedSchedule) return;
-    
+
     const { error } = await saveSchedule(
       user.id,
       generatedSchedule.date,
       generatedSchedule.schedule,
       generatedSchedule.algorithm_version
     );
-    
+
     if (error) {
       Alert.alert('Error', error.message);
     } else {
@@ -440,7 +440,7 @@ export default function DashboardScreen() {
 
               {/* Quick Focus */}
               {topPendingTask && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.quickFocusCard}
                   onPress={() => router.push('/(tabs)/timer')}
                 >
@@ -477,7 +477,7 @@ export default function DashboardScreen() {
                     </View>
                   )}
                 </View>
-                
+
                 {generatedSchedule && generatedSchedule.schedule.length > 0 ? (
                   <>
                     <GlassCard style={styles.scheduleCard} gradient>
@@ -511,21 +511,21 @@ export default function DashboardScreen() {
                         );
                       })}
                     </GlassCard>
-                    
+
                     {!todaySchedule?.accepted && (
-<View style={styles.scheduleActions}>
-                         <TouchableOpacity style={[styles.rejectButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => setGeneratedSchedule(null)}>
-                           <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Dismiss</ThemedText>
-                         </TouchableOpacity>
-                         <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptSchedule}>
-                           <ThemedText variant="titleSmall" color={colors.onPrimary}>Accept</ThemedText>
-                         </TouchableOpacity>
-                       </View>
+                      <View style={styles.scheduleActions}>
+                        <TouchableOpacity style={[styles.rejectButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => setGeneratedSchedule(null)}>
+                          <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Dismiss</ThemedText>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptSchedule}>
+                          <ThemedText variant="titleSmall" color={colors.onPrimary}>Accept</ThemedText>
+                        </TouchableOpacity>
+                      </View>
                     )}
                   </>
                 ) : (
-                  <TouchableOpacity 
-                    style={styles.generateButton} 
+                  <TouchableOpacity
+                    style={styles.generateButton}
                     onPress={handleGenerateSchedule}
                     disabled={scheduleLoading}
                   >
@@ -549,42 +549,42 @@ export default function DashboardScreen() {
               </View>
 
               {/* Category Filter */}
-<ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-<TouchableOpacity
-                    style={[styles.categoryChip, !filteredCategory && styles.categoryChipActive, { backgroundColor: colors.surfaceContainer }]}
-                    onPress={() => setFilteredCategory(null)}
-                  >
-                    <ThemedText variant="labelMedium" color={!filteredCategory ? colors.onPrimary : (colors.isDark ? colors.onSurfaceVariant : '#000000')}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                <TouchableOpacity
+                  style={[styles.categoryChip, !filteredCategory && styles.categoryChipActive, { backgroundColor: colors.surfaceContainer }]}
+                  onPress={() => setFilteredCategory(null)}
+                >
+<ThemedText variant="labelMedium" color={colors.onSurface}>
                       All
                     </ThemedText>
+                </TouchableOpacity>
+                {categories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.categoryChip,
+                      { backgroundColor: colors.surfaceContainer },
+                      filteredCategory === cat.id && { backgroundColor: cat.color + '30', borderColor: cat.color },
+                    ]}
+                    onPress={() => setFilteredCategory(cat.id === filteredCategory ? null : cat.id)}
+                  >
+                    <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
+                    <ThemedText
+                      variant="labelMedium"
+                      color={colors.onSurface}
+                    >
+                      {cat.name}
+                    </ThemedText>
                   </TouchableOpacity>
-                 {categories.map((cat) => (
-                   <TouchableOpacity
-                     key={cat.id}
-                     style={[
-                       styles.categoryChip,
-                       { backgroundColor: colors.surfaceContainer },
-                       filteredCategory === cat.id && { backgroundColor: cat.color + '30', borderColor: cat.color },
-                     ]}
-                     onPress={() => setFilteredCategory(cat.id === filteredCategory ? null : cat.id)}
-                   >
-                     <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
-                     <ThemedText
-                       variant="labelMedium"
-                       color={colors.onSurface}
-                     >
-                       {cat.name}
-                     </ThemedText>
-                   </TouchableOpacity>
-                 ))}
-                 <TouchableOpacity
-                   style={[styles.categoryChip, styles.addCategoryChip, { backgroundColor: colors.surfaceContainer }]}
-                   onPress={() => setCategoryModalVisible(true)}
-                 >
-                   <Text style={{ fontSize: 14 }}>➕</Text>
-                   <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>New</ThemedText>
-                 </TouchableOpacity>
-               </ScrollView>
+                ))}
+                <TouchableOpacity
+                  style={[styles.categoryChip, styles.addCategoryChip, { backgroundColor: colors.surfaceContainer }]}
+                  onPress={() => setCategoryModalVisible(true)}
+                >
+                  <Text style={{ fontSize: 14 }}>➕</Text>
+                  <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>New</ThemedText>
+                </TouchableOpacity>
+              </ScrollView>
             </>
           }
           ListEmptyComponent={
@@ -596,7 +596,7 @@ export default function DashboardScreen() {
               <ThemedText variant="bodyLarge" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginBottom: Spacing.md }}>
                 You have no pending tasks. Create one to get started.
               </ThemedText>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.emptyStateButton}
                 onPress={() => { resetTaskForm(); setModalVisible(true); }}
               >
@@ -616,9 +616,9 @@ export default function DashboardScreen() {
             <GlassCard style={styles.taskCard} gradient>
               <View style={styles.taskHeader}>
                 <View style={[styles.priorityIndicator, { backgroundColor: getPriorityColor(item.priority) }]} />
-<ThemedText variant="titleMedium" style={[styles.taskTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                   {item.title}
-                 </ThemedText>
+                <ThemedText variant="titleMedium" style={[styles.taskTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                  {item.title}
+                </ThemedText>
                 <View style={styles.taskActions}>
                   <TouchableOpacity onPress={() => openEditModal(item)} style={styles.actionButton}>
                     <Text style={{ fontSize: 16 }}>✏️</Text>
@@ -628,7 +628,7 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-              
+
               {item.focus_tags && item.focus_tags.length > 0 && (
                 <View style={styles.tagsRow}>
                   {item.focus_tags.map((tag, idx) => (
@@ -638,13 +638,13 @@ export default function DashboardScreen() {
                   ))}
                 </View>
               )}
-              
+
               {item.description && (
                 <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} numberOfLines={2}>
                   {item.description}
                 </ThemedText>
               )}
-              
+
               <View style={styles.taskMeta}>
                 <View style={styles.metaItem}>
                   <Text style={{ fontSize: 14 }}>⏱️</Text>
@@ -674,17 +674,17 @@ export default function DashboardScreen() {
                   </View>
                 )}
               </View>
-              
+
               <View style={styles.progressBarContainer}>
                 <View style={styles.progressBarTrack}>
-                  <View 
+                  <View
                     style={[
-                      styles.progressBarFill, 
-                      { 
+                      styles.progressBarFill,
+                      {
                         width: `${Math.min((item.completed_pomodoros / item.estimated_pomodoros) * 100, 100)}%`,
                         backgroundColor: item.category?.color || colors.primary,
                       }
-                    ]} 
+                    ]}
                   />
                 </View>
               </View>
@@ -699,7 +699,7 @@ export default function DashboardScreen() {
           <GlassCard style={styles.modalContent} intensity={80} gradient>
             <ScrollView showsVerticalScrollIndicator={false}>
               <ThemedText variant="headlineSmall" style={styles.modalTitle}>{editingTaskId ? 'Edit Task' : 'New Task'}</ThemedText>
-              
+
               <ThemedText variant="labelLarge" style={styles.label}>Title *</ThemedText>
               <TextInput
                 style={[styles.input, { color: colors.onSurface, backgroundColor: colors.surfaceContainer }]}
@@ -722,95 +722,95 @@ export default function DashboardScreen() {
 
               <ThemedText variant="labelLarge" style={styles.label}>Category</ThemedText>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categorySelector}>
-{categories.map((cat) => (
-                   <TouchableOpacity
-                     key={cat.id}
-                     style={[
-                       styles.categoryOption,
-                       { backgroundColor: colors.surfaceContainer },
-                       newTask.category_id === cat.id && { backgroundColor: cat.color + '30', borderColor: cat.color },
-                       categoryOptionPressed === cat.id && { backgroundColor: Colors.primary },
-                     ]}
-                     onPress={() => setNewTask({ ...newTask, category_id: cat.id })}
-                     onPressIn={() => setCategoryOptionPressed(cat.id)}
-                     onPressOut={() => setCategoryOptionPressed(null)}
-                   >
-                     <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
-                     <ThemedText variant="labelMedium" color={colors.onSurface}>{cat.name}</ThemedText>
-                   </TouchableOpacity>
-                 ))}
+                {categories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.categoryOption,
+                      { backgroundColor: colors.surfaceContainer },
+                      newTask.category_id === cat.id && { backgroundColor: cat.color + '30', borderColor: cat.color },
+                      categoryOptionPressed === cat.id && { backgroundColor: Colors.primary },
+                    ]}
+                    onPress={() => setNewTask({ ...newTask, category_id: cat.id })}
+                    onPressIn={() => setCategoryOptionPressed(cat.id)}
+                    onPressOut={() => setCategoryOptionPressed(null)}
+                  >
+                    <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
+                    <ThemedText variant="labelMedium" color={colors.onSurface}>{cat.name}</ThemedText>
+                  </TouchableOpacity>
+                ))}
               </ScrollView>
 
               <ThemedText variant="labelLarge" style={styles.label}>Priority (1-5)</ThemedText>
-<View style={styles.priorityRow}>
-                 {[1, 2, 3, 4, 5].map((p) => (
-                   <TouchableOpacity
-                     key={p}
-                     style={[
-                       styles.priorityButton,
-                       { backgroundColor: colors.surfaceContainer },
-                       newTask.priority === p && { backgroundColor: colors.primary },
-                       priorityPressed === p && { backgroundColor: Colors.primary },
-                     ]}
-                     onPress={() => setNewTask({ ...newTask, priority: p })}
-                     onPressIn={() => setPriorityPressed(p)}
-                     onPressOut={() => setPriorityPressed(null)}
-                   >
-                     <ThemedText
-                       variant="titleMedium"
-                       color={newTask.priority === p ? colors.onPrimary : colors.onSurfaceVariant}
-                     >
-                       {p}
-                     </ThemedText>
-                   </TouchableOpacity>
-                 ))}
-               </View>
+              <View style={styles.priorityRow}>
+                {[1, 2, 3, 4, 5].map((p) => (
+                  <TouchableOpacity
+                    key={p}
+                    style={[
+                      styles.priorityButton,
+                      { backgroundColor: colors.surfaceContainer },
+                      newTask.priority === p && { backgroundColor: colors.primary },
+                      priorityPressed === p && { backgroundColor: Colors.primary },
+                    ]}
+                    onPress={() => setNewTask({ ...newTask, priority: p })}
+                    onPressIn={() => setPriorityPressed(p)}
+                    onPressOut={() => setPriorityPressed(null)}
+                  >
+                    <ThemedText
+                      variant="titleMedium"
+                      color={newTask.priority === p ? colors.onPrimary : colors.onSurfaceVariant}
+                    >
+                      {p}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
               <ThemedText variant="labelLarge" style={styles.label}>Estimated Pomodoros</ThemedText>
-<View style={styles.counterRow}>
-                 <TouchableOpacity
-                   style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'dec' && { backgroundColor: Colors.primary }]}
-                   onPress={() => setNewTask({ ...newTask, estimated_pomodoros: Math.max(1, newTask.estimated_pomodoros - 1) })}
-                   onPressIn={() => setCounterPressed('dec')}
-                   onPressOut={() => setCounterPressed(null)}
-                 >
-                   <Text style={{ fontSize: 24 }}>➖</Text>
-                 </TouchableOpacity>
-                 <ThemedText variant="displaySmall" color={colors.onSurface}>{newTask.estimated_pomodoros}</ThemedText>
-                 <TouchableOpacity
-                   style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'inc' && { backgroundColor: Colors.primary }]}
-                   onPress={() => setNewTask({ ...newTask, estimated_pomodoros: newTask.estimated_pomodoros + 1 })}
-                   onPressIn={() => setCounterPressed('inc')}
-                   onPressOut={() => setCounterPressed(null)}
-                 >
-                   <Text style={{ fontSize: 24 }}>➕</Text>
-                 </TouchableOpacity>
-               </View>
+              <View style={styles.counterRow}>
+                <TouchableOpacity
+                  style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'dec' && { backgroundColor: Colors.primary }]}
+                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: Math.max(1, newTask.estimated_pomodoros - 1) })}
+                  onPressIn={() => setCounterPressed('dec')}
+                  onPressOut={() => setCounterPressed(null)}
+                >
+                  <Text style={{ fontSize: 24 }}>➖</Text>
+                </TouchableOpacity>
+                <ThemedText variant="displaySmall" color={colors.onSurface}>{newTask.estimated_pomodoros}</ThemedText>
+                <TouchableOpacity
+                  style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'inc' && { backgroundColor: Colors.primary }]}
+                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: newTask.estimated_pomodoros + 1 })}
+                  onPressIn={() => setCounterPressed('inc')}
+                  onPressOut={() => setCounterPressed(null)}
+                >
+                  <Text style={{ fontSize: 24 }}>➕</Text>
+                </TouchableOpacity>
+              </View>
 
               <ThemedText variant="labelLarge" style={styles.label}>Energy Level</ThemedText>
-<View style={styles.energyRow}>
-                 {(['low', 'medium', 'high'] as const).map((level) => (
-                   <TouchableOpacity
-                     key={level}
-                     style={[
-                       styles.energyButton,
-                       { backgroundColor: colors.surfaceContainer },
-                       newTask.energy_level === level && { backgroundColor: colors.primary },
-                       energyPressed === level && { backgroundColor: Colors.primary },
-                     ]}
-                     onPress={() => setNewTask({ ...newTask, energy_level: level })}
-                     onPressIn={() => setEnergyPressed(level)}
-                     onPressOut={() => setEnergyPressed(null)}
-                   >
-                     <ThemedText
-                       variant="titleSmall"
-                       color={newTask.energy_level === level ? colors.onPrimary : colors.onSurfaceVariant}
-                     >
-                       {level.charAt(0).toUpperCase() + level.slice(1)}
-                     </ThemedText>
-                   </TouchableOpacity>
-                 ))}
-               </View>
+              <View style={styles.energyRow}>
+                {(['low', 'medium', 'high'] as const).map((level) => (
+                  <TouchableOpacity
+                    key={level}
+                    style={[
+                      styles.energyButton,
+                      { backgroundColor: colors.surfaceContainer },
+                      newTask.energy_level === level && { backgroundColor: colors.primary },
+                      energyPressed === level && { backgroundColor: Colors.primary },
+                    ]}
+                    onPress={() => setNewTask({ ...newTask, energy_level: level })}
+                    onPressIn={() => setEnergyPressed(level)}
+                    onPressOut={() => setEnergyPressed(null)}
+                  >
+                    <ThemedText
+                      variant="titleSmall"
+                      color={newTask.energy_level === level ? colors.onPrimary : colors.onSurfaceVariant}
+                    >
+                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
               <ThemedText variant="labelLarge" style={styles.label}>Focus Tags (comma separated)</ThemedText>
               <TextInput
@@ -821,18 +821,18 @@ export default function DashboardScreen() {
                 placeholderTextColor={colors.onSurfaceVariant}
               />
 
-<View style={styles.modalButtons}>
-                 <TouchableOpacity style={[styles.cancelButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => { setModalVisible(false); resetTaskForm(); }}>
-                   <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Cancel</ThemedText>
-                 </TouchableOpacity>
-<TouchableOpacity 
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={[styles.cancelButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => { setModalVisible(false); resetTaskForm(); }}>
+                  <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Cancel</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.saveButton, { backgroundColor: colors.surfaceContainer }, taskSavePressed && { backgroundColor: Colors.primary }]}
                   onPress={saveTask}
                   onPressIn={() => setTaskSavePressed(true)}
                   onPressOut={() => setTaskSavePressed(false)}>
-                    <ThemedText variant="titleSmall" color={colors.onPrimary}>{editingTaskId ? 'Update Task' : 'Save Task'}</ThemedText>
-                  </TouchableOpacity>
-               </View>
+                  <ThemedText variant="titleSmall" color={taskSavePressed ? colors.onPrimary : colors.onSurface}>{editingTaskId ? 'Update Task' : 'Save Task'}</ThemedText>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </GlassCard>
         </View>
@@ -851,22 +851,22 @@ export default function DashboardScreen() {
               {categories.length > 0 && (
                 <View style={styles.categoryListSection}>
                   <ThemedText variant="labelLarge" color={colors.onSurfaceVariant} style={styles.label}>Your Categories</ThemedText>
-{categories.map((cat) => (
-                      <View key={cat.id} style={[styles.categoryListItem, { backgroundColor: colors.surfaceContainerLow }]}>
-                        <View style={styles.categoryListLeft}>
-                          <View style={[styles.categoryListDot, { backgroundColor: cat.color }]} />
-                          <ThemedText variant="bodyMedium" color={colors.onSurface}>{cat.name}</ThemedText>
-                        </View>
-                        <View style={styles.categoryListActions}>
-                          <TouchableOpacity onPress={() => editCategory(cat)} style={styles.categoryActionBtn}>
-                            <Text style={{ fontSize: 16 }}>✏️</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => deleteCategory(cat.id)} style={styles.categoryActionBtn}>
-                            <Text style={{ fontSize: 16 }}>🗑️</Text>
-                          </TouchableOpacity>
-                        </View>
+                  {categories.map((cat) => (
+                    <View key={cat.id} style={[styles.categoryListItem, { backgroundColor: colors.surfaceContainerLow }]}>
+                      <View style={styles.categoryListLeft}>
+                        <View style={[styles.categoryListDot, { backgroundColor: cat.color }]} />
+                        <ThemedText variant="bodyMedium" color={colors.onSurface}>{cat.name}</ThemedText>
                       </View>
-                    ))}
+                      <View style={styles.categoryListActions}>
+                        <TouchableOpacity onPress={() => editCategory(cat)} style={styles.categoryActionBtn}>
+                          <Text style={{ fontSize: 16 }}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deleteCategory(cat.id)} style={styles.categoryActionBtn}>
+                          <Text style={{ fontSize: 16 }}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               )}
 
@@ -899,20 +899,20 @@ export default function DashboardScreen() {
                 </View>
               </View>
 
-<View style={styles.modalButtons}>
-                 <TouchableOpacity style={[styles.cancelButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => { setCategoryModalVisible(false); resetCategoryForm(); }}>
-                   <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Close</ThemedText>
-                 </TouchableOpacity>
-<TouchableOpacity 
+              <View style={styles.modalButtons}>
+                <TouchableOpacity style={[styles.cancelButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => { setCategoryModalVisible(false); resetCategoryForm(); }}>
+                  <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Close</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.saveButton, { backgroundColor: colors.surfaceContainer }, categorySavePressed && { backgroundColor: Colors.primary }]}
                   onPress={saveCategory}
                   onPressIn={() => setCategorySavePressed(true)}
                   onPressOut={() => setCategorySavePressed(false)}>
-                    <ThemedText variant="titleSmall" color={colors.onPrimary}>
-                      {editingCategoryId ? 'Update' : 'Create'}
-                    </ThemedText>
-                  </TouchableOpacity>
-               </View>
+                  <ThemedText variant="titleSmall" color={categorySavePressed ? colors.onPrimary : colors.onSurface}>
+                    {editingCategoryId ? 'Update' : 'Create'}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </GlassCard>
         </View>
@@ -935,25 +935,25 @@ export default function DashboardScreen() {
               </ThemedText>
               ?{'\n\n'}This action cannot be undone. Your session history will be preserved.
             </ThemedText>
-<View style={styles.deleteModalButtons}>
-                 <TouchableOpacity 
-                   style={[styles.deleteModalCancel, { backgroundColor: colors.surfaceContainer }]} 
-                   onPress={() => { setDeleteModalVisible(false); setTaskToDelete(null); }}
-                 >
-                   <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Cancel</ThemedText>
-                 </TouchableOpacity>
-                 <TouchableOpacity style={styles.deleteModalConfirm} onPress={confirmDeleteTask}>
-                   <LinearGradient
-                     colors={[Colors.error, '#B91C1C']}
-                     start={{ x: 0, y: 0 }}
-                     end={{ x: 1, y: 0 }}
-                     style={styles.deleteModalConfirmGradient}
-                   >
-                     <Text style={{ fontSize: 16 }}>🗑️</Text>
-                     <ThemedText variant="titleSmall" color={colors.onPrimary}>Delete Task</ThemedText>
-                   </LinearGradient>
-                 </TouchableOpacity>
-               </View>
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalCancel, { backgroundColor: colors.surfaceContainer }]}
+                onPress={() => { setDeleteModalVisible(false); setTaskToDelete(null); }}
+              >
+                <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deleteModalConfirm} onPress={confirmDeleteTask}>
+                <LinearGradient
+                  colors={[Colors.error, '#B91C1C']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.deleteModalConfirmGradient}
+                >
+                  <Text style={{ fontSize: 16 }}>🗑️</Text>
+                  <ThemedText variant="titleSmall" color={colors.onPrimary}>Delete Task</ThemedText>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </GlassCard>
         </View>
       </Modal>
@@ -1024,9 +1024,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-categoryChipActive: {
-     backgroundColor: Colors.primary,
-   },
+  categoryChipActive: {
+    backgroundColor: Colors.primary,
+  },
   categoryDot: {
     width: 8,
     height: 8,
@@ -1197,7 +1197,7 @@ categoryChipActive: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-energyRow: {
+  energyRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
   },

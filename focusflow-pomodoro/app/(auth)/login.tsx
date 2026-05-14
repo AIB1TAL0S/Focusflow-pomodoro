@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemedText } from '@/components/ThemedText';
 import { useThemeColors } from '@/hooks/use-theme-colors';
+import { useTheme } from '@/contexts/ThemeContext';
 import { Typography, Spacing, Shadows } from '@/constants/theme';
 import { validateEmail, validatePassword } from '@/lib/validation';
 
@@ -25,6 +26,7 @@ interface FieldError {
 
 export default function LoginScreen() {
   const colors = useThemeColors();
+  const { theme, setTheme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,18 +86,36 @@ export default function LoginScreen() {
                 <Text style={{ fontSize: 40 }}>⏱️</Text>
               </LinearGradient>
             </View>
-            <ThemedText variant="headlineLarge" style={styles.title}>Welcome Back</ThemedText>
+            <ThemedText variant="headlineLarge" style={[styles.title, { color: colors.onSurface }]}>Welcome Back</ThemedText>
             <ThemedText variant="bodyLarge" color={colors.onSurfaceVariant}>
               Sign in to continue your focus journey
             </ThemedText>
           </View>
 
+          {/* Theme Toggle */}
+          <TouchableOpacity
+            style={styles.themeToggle}
+            onPress={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <LinearGradient
+              colors={[colors.surfaceContainer, colors.surfaceContainerHigh]}
+              style={styles.themeToggleGradient}
+            >
+              <Text style={{ fontSize: 18 }}>{theme === 'dark' ? '☀️' : '🌙'}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Email</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Email</ThemedText>
               <TextInput
                 style={[
                   styles.input,
+                  { 
+                    backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                    color: colors.onSurface,
+                    borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                  },
                   touched.email && errors.email ? styles.inputError : null,
                 ]}
                 placeholder="Enter your email"
@@ -121,12 +141,17 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Password</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Password</ThemedText>
               <View style={styles.passwordWrapper}>
                 <TextInput
                   style={[
                     styles.input,
                     styles.passwordInput,
+                    { 
+                      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                      color: colors.onSurface,
+                      borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                    },
                     touched.password && errors.password ? styles.inputError : null,
                   ]}
                   placeholder="Enter your password"
@@ -229,7 +254,6 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.sm,
-    color: '#f0fff8',
   },
   form: {
     gap: Spacing.md,
@@ -237,23 +261,18 @@ const styles = StyleSheet.create({
   inputContainer: {
     gap: Spacing.sm,
   },
-  label: {
-    color: '#f0fff8',
-  },
+  label: {},
   input: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: 14,
     fontSize: Typography.bodyLarge.fontSize,
-    color: '#f0fff8',
     fontFamily: Typography.bodyLarge.fontFamily,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
   inputError: {
     borderColor: '#ef4444',
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
   },
   passwordWrapper: {
     position: 'relative',
@@ -286,5 +305,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: Spacing.lg,
+  },
+  themeToggle: {
+    position: 'absolute',
+    top: 60,
+    right: Spacing.lg,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  themeToggleGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

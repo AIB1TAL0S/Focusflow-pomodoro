@@ -14,6 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { schedulePomodoroNotification, cancelScheduledNotifications } from '@/lib/notifications';
 import { Task, PomodoroSession } from '@/types/database';
 import { ThemedText } from '@/components/ThemedText';
 import { GlassCard } from '@/components/GlassCard';
@@ -406,6 +407,9 @@ export default function TimerScreen() {
     setIsRunning(false);
     if (timerRef.current) clearInterval(timerRef.current);
 
+    // Cancel scheduled notification on complete
+    await cancelScheduledNotifications().catch(console.error);
+
     // Haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Vibration.vibrate([0, 500, 200, 500]);
@@ -471,6 +475,15 @@ export default function TimerScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsRunning(true);
 
+    // Cancel any existing notifications and schedule new one for timer completion
+    await cancelScheduledNotifications();
+    const totalSeconds = isBreak ? (sessionCount % pomodorosBeforeLong === 0 && sessionCount > 0 ? longBreak : shortBreak) : focusDuration;
+    await schedulePomodoroNotification(
+      isBreak ? 'Break Complete' : 'Focus Session Complete',
+      isBreak ? 'Ready to return to focus?' : `Completed session on ${selectedTask?.title || 'your task'}`,
+      Math.max(1, totalSeconds)
+    ).catch(console.error);
+
     if (!isBreak && selectedTask) {
       const { data } = await supabase
         .from('pomodoro_sessions')
@@ -496,6 +509,9 @@ export default function TimerScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setIsRunning(false);
     if (timerRef.current) clearInterval(timerRef.current);
+
+    // Cancel scheduled notification on stop
+    await cancelScheduledNotifications().catch(console.error);
 
     if (currentSessionId) {
       const actualDuration = Math.round((focusDuration - timeLeft) / 60);
@@ -802,4 +818,3 @@ export default function TimerScreen() {
     </View>
   );
 }
-

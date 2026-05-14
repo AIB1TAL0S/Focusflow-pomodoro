@@ -14,7 +14,9 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemedText } from '@/components/ThemedText';
+import { LegalModal, LegalType } from '@/components/LegalModal';
 import { useThemeColors } from '@/hooks/use-theme-colors';
+import { useTheme } from '@/contexts/ThemeContext';
 import { Typography, Spacing, Shadows } from '@/constants/theme';
 import { validateEmail, validatePassword, validateDisplayName } from '@/lib/validation';
 
@@ -27,6 +29,7 @@ interface FieldError {
 
 export default function SignUpScreen() {
   const colors = useThemeColors();
+  const { theme, setTheme } = useTheme();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,6 +41,7 @@ export default function SignUpScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [legalModal, setLegalModal] = useState<LegalType | null>(null);
   const { signUp } = useAuth();
 
   const validateField = (field: keyof FieldError, value: string) => {
@@ -124,18 +128,36 @@ export default function SignUpScreen() {
                 <Text style={{ fontSize: 40 }}>⏱️</Text>
               </LinearGradient>
             </View>
-            <ThemedText variant="headlineLarge" style={styles.title}>Create Account</ThemedText>
+            <ThemedText variant="headlineLarge" style={[styles.title, { color: colors.onSurface }]}>Create Account</ThemedText>
             <ThemedText variant="bodyLarge" color={colors.onSurfaceVariant}>
               Start your focus journey today
             </ThemedText>
           </View>
 
+          {/* Theme Toggle */}
+          <TouchableOpacity
+            style={styles.themeToggle}
+            onPress={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <LinearGradient
+              colors={[colors.surfaceContainer, colors.surfaceContainerHigh]}
+              style={styles.themeToggleGradient}
+            >
+              <Text style={{ fontSize: 18 }}>{theme === 'dark' ? '☀️' : '🌙'}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Display Name</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Display Name</ThemedText>
               <TextInput
                 style={[
                   styles.input,
+                  { 
+                    backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                    color: colors.onSurface,
+                    borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                  },
                   touched.displayName && errors.displayName ? styles.inputError : null,
                 ]}
                 placeholder="Your name"
@@ -159,10 +181,15 @@ export default function SignUpScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Email</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Email</ThemedText>
               <TextInput
                 style={[
                   styles.input,
+                  { 
+                    backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                    color: colors.onSurface,
+                    borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                  },
                   touched.email && errors.email ? styles.inputError : null,
                 ]}
                 placeholder="Enter your email"
@@ -188,12 +215,17 @@ export default function SignUpScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Password</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Password</ThemedText>
               <View style={styles.passwordWrapper}>
                 <TextInput
                   style={[
                     styles.input,
                     styles.passwordInput,
+                    { 
+                      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                      color: colors.onSurface,
+                      borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                    },
                     touched.password && errors.password ? styles.inputError : null,
                   ]}
                   placeholder="Create a password"
@@ -225,12 +257,17 @@ export default function SignUpScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <ThemedText variant="labelLarge" style={styles.label}>Confirm Password</ThemedText>
+              <ThemedText variant="labelLarge" style={[styles.label, { color: colors.onSurface }]}>Confirm Password</ThemedText>
               <View style={styles.passwordWrapper}>
                 <TextInput
                   style={[
                     styles.input,
                     styles.passwordInput,
+                    { 
+                      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : colors.surfaceContainer,
+                      color: colors.onSurface,
+                      borderColor: colors.isDark ? 'rgba(255,255,255,0.2)' : colors.outline,
+                    },
                     touched.confirmPassword && errors.confirmPassword ? styles.inputError : null,
                   ]}
                   placeholder="Confirm your password"
@@ -263,29 +300,53 @@ export default function SignUpScreen() {
 
             {/* Terms & Privacy */}
             <View style={styles.agreements}>
-              <TouchableOpacity
-                style={styles.checkboxRow}
-                onPress={() => setTermsAccepted(!termsAccepted)}
-              >
-                <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
-                  {termsAccepted && <Text style={{ fontSize: 14 }}>✓</Text>}
-                </View>
+              <View style={styles.checkboxRow}>
+                <TouchableOpacity
+                  onPress={() => setTermsAccepted(!termsAccepted)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    { borderColor: colors.outline },
+                    termsAccepted && [styles.checkboxChecked, { backgroundColor: colors.primary, borderColor: colors.primary }]
+                  ]}>
+                    {termsAccepted && <Text style={{ fontSize: 14, color: colors.onPrimary }}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
                 <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.checkboxLabel}>
-                  I agree to the <Text style={{ color: colors.primary }}>Terms & Conditions</Text>
+                  I agree to the{' '}
+                  <Text
+                    style={{ color: colors.primary }}
+                    onPress={() => setLegalModal('terms')}
+                  >
+                    Terms & Conditions
+                  </Text>
                 </ThemedText>
-              </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.checkboxRow}
-                onPress={() => setPrivacyAccepted(!privacyAccepted)}
-              >
-                <View style={[styles.checkbox, privacyAccepted && styles.checkboxChecked]}>
-                  {privacyAccepted && <Text style={{ fontSize: 14 }}>✓</Text>}
-                </View>
+              <View style={styles.checkboxRow}>
+                <TouchableOpacity
+                  onPress={() => setPrivacyAccepted(!privacyAccepted)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    { borderColor: colors.outline },
+                    privacyAccepted && [styles.checkboxChecked, { backgroundColor: colors.primary, borderColor: colors.primary }]
+                  ]}>
+                    {privacyAccepted && <Text style={{ fontSize: 14, color: colors.onPrimary }}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
                 <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.checkboxLabel}>
-                  I agree to the <Text style={{ color: colors.primary }}>Privacy Policy</Text>
+                  I agree to the{' '}
+                  <Text
+                    style={{ color: colors.primary }}
+                    onPress={() => setLegalModal('privacy')}
+                  >
+                    Privacy Policy
+                  </Text>
                 </ThemedText>
-              </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -324,6 +385,19 @@ export default function SignUpScreen() {
           </View>
         </View>
       </LinearGradient>
+
+      <LegalModal
+        visible={legalModal === 'terms'}
+        type="terms"
+        onClose={() => setLegalModal(null)}
+        onAccept={() => setTermsAccepted(true)}
+      />
+      <LegalModal
+        visible={legalModal === 'privacy'}
+        type="privacy"
+        onClose={() => setLegalModal(null)}
+        onAccept={() => setPrivacyAccepted(true)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -360,7 +434,6 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.sm,
-    color: '#f0fff8',
   },
   form: {
     gap: Spacing.md,
@@ -368,23 +441,18 @@ const styles = StyleSheet.create({
   inputContainer: {
     gap: Spacing.sm,
   },
-  label: {
-    color: '#f0fff8',
-  },
+  label: {},
   input: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: 14,
     fontSize: Typography.bodyLarge.fontSize,
-    color: '#f0fff8',
     fontFamily: Typography.bodyLarge.fontFamily,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
   inputError: {
     borderColor: '#ef4444',
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
   },
   errorText: {
     marginTop: Spacing.xs,
@@ -417,14 +485,10 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  checkboxChecked: {
-    backgroundColor: '#6ffbbe',
-    borderColor: '#6ffbbe',
-  },
+  checkboxChecked: {},
   checkboxLabel: {
     flex: 1,
     flexWrap: 'wrap',
@@ -443,5 +507,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: Spacing.lg,
+  },
+  themeToggle: {
+    position: 'absolute',
+    top: 60,
+    right: Spacing.lg,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  themeToggleGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

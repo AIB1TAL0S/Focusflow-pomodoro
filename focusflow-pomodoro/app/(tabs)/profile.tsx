@@ -9,18 +9,20 @@ import {
   Switch,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, Link } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { ThemedText } from '@/components/ThemedText';
 import { GlassCard } from '@/components/GlassCard';
-import { Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useThemeColors } from '@/hooks/use-theme-colors';
 import { ProfileSkeleton } from '@/components/skeletons/ProfileSkeleton';
+import { ResetAccountModal } from '@/components/ResetAccountModal';
+import { resetAccountData } from '@/lib/reset-api';
 import {
   validateDisplayName,
   validateFocusDuration,
@@ -29,14 +31,15 @@ import {
 } from '@/lib/validation';
 
 export default function ProfileScreen() {
-  const { user, profile, preferences, refreshProfile, refreshPreferences } = useAuth();
-  const { theme, setTheme } = useTheme();
+const { user, profile, preferences, refreshProfile, refreshPreferences, signOut } = useAuth();
+   const { setTheme } = useTheme();
   const colors = useThemeColors();
   const { isDark } = colors;
   const [editingProfile, setEditingProfile] = useState(false);
   const [editingPreferences, setEditingPreferences] = useState(false);
   const [displayName, setDisplayName] = useState(profile?.display_name || '');
   const [loading, setLoading] = useState(true);
+  const [showResetModal, setShowResetModal] = useState(false);
   const [localPrefs, setLocalPrefs] = useState({
     focus_duration: preferences?.focus_duration || 25,
     short_break_duration: preferences?.short_break_duration || 5,
@@ -109,23 +112,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: () => {
-            router.replace('/signout');
-          },
-        },
-      ],
-      { cancelable: true }
-    );
-  };
 
   const handleChangePassword = async () => {
     if (!user?.email) return;
@@ -136,6 +122,17 @@ export default function ProfileScreen() {
       Alert.alert('Password Reset', 'Check your email for the password reset link.');
     }
   };
+
+  const handleReset = async (): Promise<{ success: boolean; error: string | null }> => {
+    return resetAccountData();
+  };
+
+  const handleResetComplete = useCallback(async () => {
+    // Data is wiped and all remote sessions are invalidated.
+    // Clear local auth state and navigate to login.
+    await signOut();
+    router.replace('/(auth)/login');
+  }, [signOut]);
 
   const styles = useMemo(() => StyleSheet.create({
     container: {
@@ -183,7 +180,7 @@ export default function ProfileScreen() {
       paddingHorizontal: Spacing.sm,
       paddingVertical: 2,
       borderRadius: 9999,
-      backgroundColor: colors.surfaceContainerLow,
+      backgroundColor: colors.isDark ? `${colors.surfaceContainerHigh}cc` : colors.surfaceContainerHigh,
     },
     editForm: {
       width: '100%',
@@ -219,7 +216,7 @@ export default function ProfileScreen() {
       paddingHorizontal: Spacing.lg,
       paddingVertical: Spacing.sm,
       borderRadius: 8,
-      backgroundColor: colors.surfaceContainerLow,
+      backgroundColor: colors.isDark ? `${colors.surfaceContainerHigh}cc` : colors.surfaceContainerLow,
     },
     section: {
       marginBottom: Spacing.lg,
@@ -300,6 +297,49 @@ export default function ProfileScreen() {
       paddingVertical: Spacing.md,
       marginTop: Spacing.md,
     },
+    dangerZone: {
+      marginBottom: Spacing.lg,
+      borderWidth: 1,
+      borderColor: `${Colors.error}40`,
+      borderRadius: 16,
+      overflow: 'hidden',
+    },
+    dangerZoneHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.md,
+      backgroundColor: `${Colors.error}10`,
+    },
+    dangerZoneBody: {
+      padding: Spacing.lg,
+    },
+    resetButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: `${Colors.error}12`,
+      borderRadius: 12,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.md,
+      borderWidth: 1,
+      borderColor: `${Colors.error}30`,
+    },
+    resetButtonLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      flex: 1,
+    },
+    resetIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: `${Colors.error}20`,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
   }), [colors]);
 
   if (loading) {
@@ -350,12 +390,12 @@ export default function ProfileScreen() {
               <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant}>{user?.email}</ThemedText>
               <View style={styles.profileMeta}>
                 <View style={styles.metaBadge}>
-                  <IconSymbol name="checkmark.shield" size={12} color={colors.tertiaryFixedDim} />
-                  <ThemedText variant="labelSmall" color={colors.tertiaryFixedDim}>Verified</ThemedText>
+                  <IconSymbol name="checkmark.shield" size={12} color={colors.tertiary} />
+                  <ThemedText variant="labelSmall" color={colors.onSurface}>Verified</ThemedText>
                 </View>
                 <View style={styles.metaBadge}>
-                  <IconSymbol name="clock" size={12} color={colors.onSurfaceVariant} />
-                  <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                  <IconSymbol name="clock" size={12} color={colors.onSurface} />
+                  <ThemedText variant="labelSmall" color={colors.onSurface}>
                     Member since {new Date(user?.created_at || '').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                   </ThemedText>
                 </View>
@@ -495,12 +535,51 @@ export default function ProfileScreen() {
           </GlassCard>
         </View>
 
-        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-          <IconSymbol name="arrow.right.square" size={20} color={colors.error} />
-          <ThemedText variant="titleMedium" color={colors.error}>Sign Out</ThemedText>
-        </TouchableOpacity>
+        {/* Danger Zone */}
+        <View style={styles.dangerZone}>
+          <View style={styles.dangerZoneHeader}>
+            <IconSymbol name="exclamationmark.triangle" size={16} color={Colors.error} />
+            <ThemedText variant="labelLarge" color={Colors.error}>Danger Zone</ThemedText>
+          </View>
+          <View style={styles.dangerZoneBody}>
+            <TouchableOpacity style={styles.resetButton} onPress={() => setShowResetModal(true)}>
+              <View style={styles.resetButtonLeft}>
+                <View style={styles.resetIconWrap}>
+                  <IconSymbol name="trash" size={18} color={Colors.error} />
+                </View>
+                <View>
+                  <ThemedText variant="bodyMedium" color={Colors.error}>Reset Account Data</ThemedText>
+                  <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                    Wipe all sessions, tasks & analytics
+                  </ThemedText>
+                </View>
+              </View>
+              <ThemedText style={{ fontSize: 16 }}>›</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Link href="/signout" asChild>
+          <TouchableOpacity style={styles.signOutButton}>
+            <IconSymbol name="arrow.right.square" size={20} color={colors.error} />
+            <ThemedText variant="titleMedium" color={colors.error}>Sign Out</ThemedText>
+          </TouchableOpacity>
+        </Link>
       </ScrollView>
       </LinearGradient>
+
+      <ResetAccountModal
+        visible={showResetModal}
+        onClose={() => setShowResetModal(false)}
+        onConfirm={async () => {
+          const result = await handleReset();
+          if (result.success) {
+            // Brief pause so the user sees the "Done" step before sign-out
+            setTimeout(() => handleResetComplete(), 1500);
+          }
+          return result;
+        }}
+      />
     </View>
   );
 }
