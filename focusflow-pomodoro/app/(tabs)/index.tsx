@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,6 +10,7 @@ import {
   Alert,
   ScrollView,
   Text,
+  Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
@@ -25,7 +26,7 @@ import { useThemeColors } from '@/hooks/use-theme-colors';
 
 import { generateSchedule, saveSchedule } from '@/lib/schedule';
 import { DashboardSkeleton } from '@/components/skeletons/DashboardSkeleton';
-import { validateTaskTitle, validateEstimatedPomodoros, validateCategoryName, validateDeadline } from '@/lib/validation';
+import { validateTaskTitle, validateCategoryName, validateDeadline } from '@/lib/validation';
 
 interface DailyStats {
   completedPomodoros: number;
@@ -33,16 +34,40 @@ interface DailyStats {
   pendingTasks: number;
 }
 
+type TaskStatusFilter = 'active' | 'all' | 'pending' | 'scheduled' | 'in_progress' | 'completed';
+type TaskEnergyFilter = 'all' | Task['energy_level'];
+
+const statusFilters: { value: TaskStatusFilter; label: string }[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'completed', label: 'Completed' },
+];
+
+const energyFilters: { value: TaskEnergyFilter; label: string }[] = [
+  { value: 'all', label: 'Any Energy' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
+
+const activeStatuses: Task['status'][] = ['pending', 'scheduled', 'in_progress'];
+
 export default function DashboardScreen() {
   const { user, preferences } = useAuth();
   const colors = useThemeColors();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [filteredCategory, setFilteredCategory] = useState<string | null>(null);
+  const [taskSearch, setTaskSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>('active');
+  const [energyFilter, setEnergyFilter] = useState<TaskEnergyFilter>('all');
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
   const [stats, setStats] = useState<DailyStats>({ completedPomodoros: 0, focusMinutes: 0, pendingTasks: 0 });
   const [todaySchedule, setTodaySchedule] = useState<DailySchedule | null>(null);
   const [generatedSchedule, setGeneratedSchedule] = useState<DailySchedule | null>(null);
-  const [scheduleLoading, setScheduleLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -55,10 +80,22 @@ export default function DashboardScreen() {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [taskSavePressed, setTaskSavePressed] = useState(false);
   const [categorySavePressed, setCategorySavePressed] = useState(false);
-  const [counterPressed, setCounterPressed] = useState<string | null>(null);
   const [energyPressed, setEnergyPressed] = useState<string | null>(null);
   const [priorityPressed, setPriorityPressed] = useState<number | null>(null);
   const [categoryOptionPressed, setCategoryOptionPressed] = useState<string | null>(null);
+  const pomodorosBeforeLong = preferences?.pomodoros_before_long_break || 4;
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const filterAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(filterAnim, {
+      toValue: filtersExpanded ? 1 : 0,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersExpanded]);
+
   const [tagInput, setTagInput] = useState('');
   const [newTask, setNewTask] = useState<{
     title: string;
@@ -73,7 +110,7 @@ export default function DashboardScreen() {
     title: '',
     description: '',
     priority: 3,
-    estimated_pomodoros: 1,
+    estimated_pomodoros: pomodorosBeforeLong,
     energy_level: 'medium',
     category_id: null,
     focus_tags: [],
@@ -124,6 +161,7 @@ export default function DashboardScreen() {
     if (schedule) {
       setTodaySchedule(schedule);
       setGeneratedSchedule(schedule);
+      setScheduleExpanded(false);
     }
 
     setLoading(false);
@@ -133,6 +171,7 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user])
   );
 
@@ -146,7 +185,7 @@ export default function DashboardScreen() {
       title: '',
       description: '',
       priority: 3,
-      estimated_pomodoros: 1,
+      estimated_pomodoros: pomodorosBeforeLong,
       energy_level: 'medium',
       category_id: null,
       focus_tags: [],
@@ -174,15 +213,10 @@ export default function DashboardScreen() {
 
   const saveTask = async () => {
     const titleValidation = validateTaskTitle(newTask.title);
-    const pomodoroValidation = validateEstimatedPomodoros(newTask.estimated_pomodoros);
     const deadlineValidation = validateDeadline(newTask.deadline);
 
     if (!titleValidation.valid) {
       Alert.alert('Validation Error', titleValidation.message);
-      return;
-    }
-    if (!pomodoroValidation.valid) {
-      Alert.alert('Validation Error', pomodoroValidation.message);
       return;
     }
     if (!deadlineValidation.valid) {
@@ -213,7 +247,8 @@ export default function DashboardScreen() {
       } else {
         setModalVisible(false);
         resetTaskForm();
-        fetchData();
+        await fetchData();
+        await regenerateScheduleIfNeeded();
       }
     } else {
       const { error } = await supabase.from('tasks').insert({
@@ -227,7 +262,8 @@ export default function DashboardScreen() {
       } else {
         setModalVisible(false);
         resetTaskForm();
-        fetchData();
+        await fetchData();
+        await regenerateScheduleIfNeeded();
       }
     }
   };
@@ -313,35 +349,112 @@ export default function DashboardScreen() {
     } else {
       setDeleteModalVisible(false);
       setTaskToDelete(null);
-      fetchData();
+      await fetchData();
+      await regenerateScheduleIfNeeded();
     }
   };
 
-  const handleGenerateSchedule = async () => {
-    if (!user || !preferences) return;
-
-    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'scheduled');
-    if (pendingTasks.length === 0) {
-      Alert.alert('No Tasks', 'Create some tasks first to generate a schedule.');
-      return;
-    }
-
-    setScheduleLoading(true);
-    const today = new Date().toISOString().split('T')[0];
-
-    const { schedule, error } = await generateSchedule(
-      pendingTasks,
-      preferences as UserPreferences,
-      today
+  const getSchedulableTasks = (sourceTasks: Task[]) =>
+    sourceTasks.filter(
+      (task) =>
+        (task.status === 'pending' ||
+          task.status === 'scheduled' ||
+          task.status === 'in_progress') &&
+        task.estimated_pomodoros - task.completed_pomodoros > 0
     );
 
-    setScheduleLoading(false);
+  const fetchScheduleInputs = async () => {
+    if (!user) throw new Error('Not authenticated');
 
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else if (schedule) {
-      setGeneratedSchedule(schedule);
+    const today = new Date().toISOString().split('T')[0];
+    const [{ data: freshTasks, error: tasksError }, { data: freshSessions, error: sessionsError }] =
+      await Promise.all([
+        supabase
+          .from('tasks')
+          .select('*, category:categories(*)')
+          .eq('user_id', user.id),
+        supabase
+          .from('pomodoro_sessions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'completed')
+          .gte('start_time', `${today}T00:00:00.000Z`),
+      ]);
+
+    if (tasksError) throw new Error(tasksError.message);
+    if (sessionsError) throw new Error(sessionsError.message);
+
+    return {
+      today,
+      schedulableTasks: getSchedulableTasks((freshTasks || []) as Task[]),
+      completedSessions: freshSessions?.length || 0,
+    };
+  };
+
+  const regenerateScheduleFromFreshTasks = async (
+    acceptSchedule: boolean,
+    alertWhenEmpty: boolean
+  ) => {
+    if (!user || !preferences) return;
+
+    try {
+      const { today, schedulableTasks, completedSessions } = await fetchScheduleInputs();
+
+      if (schedulableTasks.length === 0 && alertWhenEmpty) {
+        Alert.alert('No Active Tasks', 'There are no remaining tasks to schedule.');
+      }
+
+      const { schedule: dailySchedule, error } = generateSchedule(
+        schedulableTasks,
+        preferences as UserPreferences,
+        today,
+        completedSessions
+      );
+
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+      if (!dailySchedule) return;
+
+      const nextSchedule: DailySchedule = {
+        ...dailySchedule,
+        user_id: user.id,
+        accepted: acceptSchedule,
+      };
+
+      if (acceptSchedule) {
+        const { error: saveError } = await saveSchedule(
+          user.id,
+          today,
+          nextSchedule.schedule,
+          nextSchedule.algorithm_version
+        );
+        if (saveError) {
+          Alert.alert('Error', saveError.message);
+          return;
+        }
+        setTodaySchedule(nextSchedule);
+      }
+
+      setGeneratedSchedule(nextSchedule);
+      setScheduleExpanded(false);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not regenerate schedule.');
     }
+  };
+
+  const regenerateScheduleIfNeeded = async () => {
+    if (!todaySchedule?.accepted) return;
+    await regenerateScheduleFromFreshTasks(true, false);
+  };
+
+  const handleGenerateSchedule = () => {
+    regenerateScheduleFromFreshTasks(false, true);
+  };
+
+  const handleRegenerateSchedule = () => {
+    regenerateScheduleFromFreshTasks(Boolean(todaySchedule?.accepted), true);
   };
 
   const handleAcceptSchedule = async () => {
@@ -357,14 +470,60 @@ export default function DashboardScreen() {
     if (error) {
       Alert.alert('Error', error.message);
     } else {
-      setTodaySchedule(generatedSchedule);
+      const acceptedSchedule = { ...generatedSchedule, accepted: true };
+      setTodaySchedule(acceptedSchedule);
+      setGeneratedSchedule(acceptedSchedule);
       Alert.alert('Success', 'Schedule saved!');
     }
   };
 
-  const filteredTasks = filteredCategory
-    ? tasks.filter(t => t.category_id === filteredCategory)
-    : tasks;
+  const filteredTasks = useMemo(() => {
+    const query = taskSearch.trim().toLowerCase();
+
+    return tasks.filter((task) => {
+      const matchesCategory = filteredCategory
+        ? task.category_id === filteredCategory
+        : true;
+      const matchesStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'active'
+            ? activeStatuses.includes(task.status)
+            : task.status === statusFilter;
+      const matchesEnergy =
+        energyFilter === 'all' ? true : task.energy_level === energyFilter;
+      const searchableText = [
+        task.title,
+        task.description || '',
+        task.category?.name || '',
+        ...(task.focus_tags || []),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return (
+        matchesCategory &&
+        matchesStatus &&
+        matchesEnergy &&
+        (query.length === 0 || searchableText.includes(query))
+      );
+    });
+  }, [tasks, filteredCategory, taskSearch, statusFilter, energyFilter]);
+
+  const activeTaskCount = tasks.filter((task) => activeStatuses.includes(task.status)).length;
+  const completedTaskCount = tasks.filter((task) => task.status === 'completed').length;
+  const hasActiveFilters =
+    filteredCategory !== null ||
+    taskSearch.trim().length > 0 ||
+    statusFilter !== 'active' ||
+    energyFilter !== 'all';
+
+  const clearFilters = () => {
+    setFilteredCategory(null);
+    setTaskSearch('');
+    setStatusFilter('active');
+    setEnergyFilter('all');
+  };
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
@@ -381,6 +540,23 @@ export default function DashboardScreen() {
   const router = useRouter();
 
   const topPendingTask = tasks.find(t => t.status === 'pending' || t.status === 'in_progress');
+  const scheduleEntries = generatedSchedule?.schedule ?? [];
+  const schedulePreviewLimit = 6;
+  const visibleScheduleEntries = scheduleExpanded
+    ? scheduleEntries
+    : scheduleEntries.slice(0, schedulePreviewLimit);
+  const hiddenScheduleEntryCount = Math.max(0, scheduleEntries.length - visibleScheduleEntries.length);
+  const scheduleFocusBlocks = scheduleEntries.filter((entry) => entry.type === 'focus').length;
+  const scheduleBreaks = scheduleEntries.length - scheduleFocusBlocks;
+  const scheduleTotalMinutes = scheduleEntries.reduce((sum, entry) => sum + entry.duration, 0);
+  const scheduleDurationLabel =
+    scheduleTotalMinutes >= 60
+      ? `${Math.floor(scheduleTotalMinutes / 60)}h ${scheduleTotalMinutes % 60}m`
+      : `${scheduleTotalMinutes}m`;
+  const lastScheduleEntry = scheduleEntries[scheduleEntries.length - 1];
+  const scheduleDoneBy = lastScheduleEntry
+    ? new Date(new Date(lastScheduleEntry.start_time).getTime() + lastScheduleEntry.duration * 60_000)
+    : null;
 
   if (loading && !refreshing) {
     return <DashboardSkeleton />;
@@ -469,52 +645,128 @@ export default function DashboardScreen() {
               {/* Schedule Section */}
               <View style={styles.scheduleSection}>
                 <View style={styles.scheduleHeader}>
-                  <ThemedText variant="titleMedium" color={colors.onSurface}>Today{'\''}s Schedule</ThemedText>
-                  {todaySchedule?.accepted && (
-                    <View style={styles.acceptedBadge}>
-                      <Text style={{ fontSize: 12 }}>✓</Text>
-                      <ThemedText variant="labelSmall" color={Colors.success}>Accepted</ThemedText>
-                    </View>
-                  )}
+                  <View style={styles.scheduleTitleBlock}>
+                    <ThemedText variant="titleMedium" color={colors.onSurface}>Today{'\''}s Schedule</ThemedText>
+                    {scheduleEntries.length > 0 && (
+                      <ThemedText variant="bodySmall" color={colors.onSurfaceVariant}>
+                        {scheduleFocusBlocks} focus · {scheduleBreaks} breaks · {scheduleDurationLabel}
+                      </ThemedText>
+                    )}
+                  </View>
+                  <View style={styles.scheduleHeaderActions}>
+                    {todaySchedule?.accepted && (
+                      <View style={[styles.acceptedBadge, { backgroundColor: `${Colors.success}24`, borderColor: Colors.success }]}>
+                        <Text style={{ fontSize: 12 }}>✓</Text>
+                        <ThemedText variant="labelMedium" color={Colors.success}>Accepted</ThemedText>
+                      </View>
+                    )}
+                    {(generatedSchedule || todaySchedule) && (
+                      <TouchableOpacity
+                        style={[styles.regenerateButton, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.primary }]}
+                        onPress={handleRegenerateSchedule}
+                      >
+                        <Text style={{ fontSize: 13, color: colors.primary }}>↻</Text>
+                        <ThemedText variant="labelMedium" color={colors.primary}>Regenerate</ThemedText>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
 
-                {generatedSchedule && generatedSchedule.schedule.length > 0 ? (
+                {generatedSchedule && scheduleEntries.length > 0 ? (
                   <>
                     <GlassCard style={styles.scheduleCard} gradient>
-                      {generatedSchedule.schedule.map((entry, index) => {
-                        const task = tasks.find(t => t.id === entry.task_id);
-                        const startTime = new Date(entry.start_time);
-                        return (
-                          <View key={index} style={styles.scheduleEntry}>
-                            <View style={styles.scheduleTime}>
-                              <ThemedText variant="labelMedium" color={colors.primary}>
-                                {startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                              </ThemedText>
-                              <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
-                                {entry.duration} min
-                              </ThemedText>
-                            </View>
-                            <View style={styles.scheduleDivider} />
-                            <View style={styles.scheduleTask}>
-                              <ThemedText variant="bodyMedium" color={colors.onSurface} numberOfLines={1}>
-                                {task?.title || 'Unknown Task'}
-                              </ThemedText>
-                              {task?.category && (
-                                <View style={[styles.scheduleCategory, { backgroundColor: task.category.color + '25' }]}>
-                                  <ThemedText variant="labelSmall" color={task.category.color}>
-                                    {task.category.name}
+                      <View style={styles.scheduleSummaryBar}>
+                        <View style={[styles.scheduleSummaryItem, { backgroundColor: colors.surfaceContainerLow }]}>
+                          <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>Focus</ThemedText>
+                          <ThemedText variant="titleSmall" color={colors.onSurface}>{scheduleFocusBlocks}</ThemedText>
+                        </View>
+                        <View style={[styles.scheduleSummaryItem, { backgroundColor: colors.surfaceContainerLow }]}>
+                          <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>Total</ThemedText>
+                          <ThemedText variant="titleSmall" color={colors.onSurface}>{scheduleDurationLabel}</ThemedText>
+                        </View>
+                        <View style={[styles.scheduleSummaryItem, { backgroundColor: colors.surfaceContainerLow }]}>
+                          <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>Done by</ThemedText>
+                          <ThemedText variant="titleSmall" color={colors.primary}>
+                            {scheduleDoneBy?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                          </ThemedText>
+                        </View>
+                      </View>
+
+                      <View style={styles.schedulePreviewList}>
+                        {visibleScheduleEntries.map((entry, index) => {
+                          const task = tasks.find(t => t.id === entry.task_id);
+                          const startTime = new Date(entry.start_time);
+                          const isBreak = entry.type === 'short_break' || entry.type === 'long_break';
+                          return (
+                            <View
+                              key={`${entry.start_time}-${index}`}
+                              style={[
+                                styles.scheduleEntry,
+                                { backgroundColor: isBreak ? `${colors.surfaceContainerLow}80` : `${colors.primary}10` },
+                              ]}
+                            >
+                              <View style={styles.scheduleTime}>
+                                <ThemedText variant="labelMedium" color={isBreak ? colors.onSurfaceVariant : colors.primary}>
+                                  {startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                </ThemedText>
+                                <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                                  {entry.duration} min
+                                </ThemedText>
+                              </View>
+                              <View style={styles.scheduleDivider} />
+                              <View style={styles.scheduleTask}>
+                                {isBreak ? (
+                                  <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant}>
+                                    {entry.type === 'long_break' ? '☕ Long Break' : '🌿 Short Break'}
                                   </ThemedText>
-                                </View>
-                              )}
+                                ) : (
+                                  <>
+                                    <ThemedText variant="bodyMedium" color={colors.onSurface} numberOfLines={1}>
+                                      {task?.title || 'Unknown Task'}
+                                    </ThemedText>
+                                    {task?.category && (
+                                      <View style={[styles.scheduleCategory, { backgroundColor: task.category.color + '25' }]}>
+                                        <ThemedText variant="labelSmall" color={task.category.color}>
+                                          {task.category.name}
+                                        </ThemedText>
+                                      </View>
+                                    )}
+                                  </>
+                                )}
+                              </View>
                             </View>
-                          </View>
-                        );
-                      })}
+                          );
+                        })}
+                      </View>
+
+                      {scheduleEntries.length > schedulePreviewLimit && (
+                        <TouchableOpacity
+                          style={[styles.scheduleToggleButton, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLow }]}
+                          onPress={() => setScheduleExpanded((expanded) => !expanded)}
+                        >
+                          <ThemedText variant="labelMedium" color={colors.onSurface}>
+                            {scheduleExpanded
+                              ? 'Show less'
+                              : `Show all ${scheduleEntries.length} entries`}
+                          </ThemedText>
+                          {!scheduleExpanded && hiddenScheduleEntryCount > 0 && (
+                            <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                              {hiddenScheduleEntryCount} more
+                            </ThemedText>
+                          )}
+                        </TouchableOpacity>
+                      )}
                     </GlassCard>
 
                     {!todaySchedule?.accepted && (
                       <View style={styles.scheduleActions}>
-                        <TouchableOpacity style={[styles.rejectButton, { backgroundColor: colors.surfaceContainer }]} onPress={() => setGeneratedSchedule(null)}>
+                        <TouchableOpacity
+                          style={[styles.rejectButton, { backgroundColor: colors.surfaceContainer }]}
+                          onPress={() => {
+                            setGeneratedSchedule(null);
+                            setScheduleExpanded(false);
+                          }}
+                        >
                           <ThemedText variant="titleSmall" color={colors.onSurfaceVariant}>Dismiss</ThemedText>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptSchedule}>
@@ -527,7 +779,6 @@ export default function DashboardScreen() {
                   <TouchableOpacity
                     style={styles.generateButton}
                     onPress={handleGenerateSchedule}
-                    disabled={scheduleLoading}
                   >
                     <LinearGradient
                       colors={[colors.primary, Colors.gradientEnd]}
@@ -535,56 +786,152 @@ export default function DashboardScreen() {
                       end={{ x: 1, y: 1 }}
                       style={styles.generateButtonGradient}
                     >
-                      {scheduleLoading ? (
-                        <ThemedText variant="bodyMedium" color={colors.onPrimary}>Generating...</ThemedText>
-                      ) : (
-                        <>
-                          <Text style={{ fontSize: 20 }}>✨</Text>
-                          <ThemedText variant="bodyMedium" color={colors.onPrimary}>Generate Schedule</ThemedText>
-                        </>
-                      )}
+                      <Text style={{ fontSize: 20 }}>✨</Text>
+                      <ThemedText variant="bodyMedium" color={colors.onPrimary}>Generate Schedule</ThemedText>
                     </LinearGradient>
                   </TouchableOpacity>
                 )}
               </View>
 
-              {/* Category Filter */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+              {/* Task Filters Accordion */}
+              <View style={styles.taskControls}>
                 <TouchableOpacity
-                  style={[styles.categoryChip, !filteredCategory && styles.categoryChipActive, { backgroundColor: colors.surfaceContainer }]}
-                  onPress={() => setFilteredCategory(null)}
+                  style={styles.taskListHeader}
+                  onPress={() => setFiltersExpanded(!filtersExpanded)}
+                  activeOpacity={0.7}
                 >
-                  <ThemedText variant="labelMedium" color={colors.onSurface}>
-                    All
-                  </ThemedText>
-                </TouchableOpacity>
-                {categories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.categoryChip,
-                      { backgroundColor: colors.surfaceContainer },
-                      filteredCategory === cat.id && { backgroundColor: cat.color + '30', borderColor: cat.color },
-                    ]}
-                    onPress={() => setFilteredCategory(cat.id === filteredCategory ? null : cat.id)}
-                  >
-                    <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
-                    <ThemedText
-                      variant="labelMedium"
-                      color={colors.onSurface}
-                    >
-                      {cat.name}
+                  <View style={styles.taskListTitleBlock}>
+                    <ThemedText variant="titleMedium" color={colors.onSurface}>Tasks</ThemedText>
+                    <ThemedText variant="bodySmall" color={colors.onSurfaceVariant}>
+                      {filteredTasks.length} shown · {activeTaskCount} active · {completedTaskCount} completed
                     </ThemedText>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  style={[styles.categoryChip, styles.addCategoryChip, { backgroundColor: colors.surfaceContainer }]}
-                  onPress={() => setCategoryModalVisible(true)}
-                >
-                  <Text style={{ fontSize: 14 }}>➕</Text>
-                  <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>New</ThemedText>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                    {hasActiveFilters && (
+                      <TouchableOpacity
+                        style={[styles.clearFiltersButton, { borderColor: colors.outlineVariant }]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          clearFilters();
+                        }}
+                      >
+                        <ThemedText variant="labelMedium" color={colors.onSurface}>Clear</ThemedText>
+                      </TouchableOpacity>
+                    )}
+                    <Text style={{ fontSize: 18 }}>
+                      {filtersExpanded ? '🔼' : '🔽'}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
-              </ScrollView>
+
+                <Animated.View style={{ maxHeight: filterAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }), overflow: 'hidden' }}>
+                  <View style={[styles.searchField, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+                    <Text style={{ fontSize: 16 }}>🔎</Text>
+                    <TextInput
+                      style={[styles.searchInput, { color: colors.onSurface }]}
+                      value={taskSearch}
+                      onChangeText={setTaskSearch}
+                      placeholder="Search tasks, tags, or categories"
+                      placeholderTextColor={colors.onSurfaceVariant}
+                    />
+                    {taskSearch.length > 0 && (
+                      <TouchableOpacity onPress={() => setTaskSearch('')} style={styles.searchClearButton}>
+                        <Text style={{ color: colors.onSurfaceVariant, fontSize: 14 }}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <View style={styles.filterRows}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterContent}>
+                      {statusFilters.map((filter) => {
+                        const active = statusFilter === filter.value;
+                        return (
+                          <TouchableOpacity
+                            key={filter.value}
+                            style={[
+                              styles.filterChip,
+                              {
+                                backgroundColor: active ? colors.primary : colors.surfaceContainer,
+                                borderColor: active ? colors.primary : colors.outlineVariant,
+                              },
+                            ]}
+                            onPress={() => setStatusFilter(filter.value)}
+                          >
+                            <ThemedText variant="labelMedium" color={active ? colors.onPrimary : colors.onSurface}>
+                              {filter.label}
+                            </ThemedText>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterContent}>
+                      <TouchableOpacity
+                        style={[
+                          styles.filterChip,
+                          {
+                            backgroundColor: filteredCategory ? colors.surfaceContainer : colors.primary,
+                            borderColor: filteredCategory ? colors.outlineVariant : colors.primary,
+                          },
+                        ]}
+                        onPress={() => setFilteredCategory(null)}
+                      >
+                        <ThemedText variant="labelMedium" color={filteredCategory ? colors.onSurface : colors.onPrimary}>
+                          All Categories
+                        </ThemedText>
+                      </TouchableOpacity>
+                      {categories.map((cat) => {
+                        const active = filteredCategory === cat.id;
+                        return (
+                          <TouchableOpacity
+                            key={cat.id}
+                            style={[
+                              styles.filterChip,
+                              { backgroundColor: active ? `${cat.color}30` : colors.surfaceContainer, borderColor: active ? cat.color : colors.outlineVariant },
+                            ]}
+                            onPress={() => setFilteredCategory(active ? null : cat.id)}
+                          >
+                            <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
+                            <ThemedText variant="labelMedium" color={active ? cat.color : colors.onSurface}>
+                              {cat.name}
+                            </ThemedText>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity
+                        style={[styles.filterChip, styles.addCategoryChip, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+                        onPress={() => setCategoryModalVisible(true)}
+                      >
+                        <Text style={{ fontSize: 14 }}>➕</Text>
+                        <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>New</ThemedText>
+                      </TouchableOpacity>
+                    </ScrollView>
+
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterContent}>
+                      {energyFilters.map((filter) => {
+                        const active = energyFilter === filter.value;
+                        return (
+                          <TouchableOpacity
+                            key={filter.value}
+                            style={[
+                              styles.filterChip,
+                              {
+                                backgroundColor: active ? `${colors.tertiary}25` : colors.surfaceContainer,
+                                borderColor: active ? colors.tertiary : colors.outlineVariant,
+                              },
+                            ]}
+                            onPress={() => setEnergyFilter(filter.value)}
+                          >
+                            <ThemedText variant="labelMedium" color={active ? colors.tertiary : colors.onSurface}>
+                              {filter.label}
+                            </ThemedText>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </Animated.View>
+              </View>
             </>
           }
           ListEmptyComponent={
@@ -592,13 +939,17 @@ export default function DashboardScreen() {
               <View style={styles.emptyIcon}>
                 <Text style={{ fontSize: 48 }}>🎯</Text>
               </View>
-              <ThemedText variant="titleLarge" color={colors.onSurface}>All caught up!</ThemedText>
+              <ThemedText variant="titleLarge" color={colors.onSurface}>
+                {hasActiveFilters ? 'No matching tasks' : 'All caught up!'}
+              </ThemedText>
               <ThemedText variant="bodyLarge" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginBottom: Spacing.md }}>
-                You have no pending tasks. Create one to get started.
+                {hasActiveFilters
+                  ? 'Try clearing filters or searching for a different task.'
+                  : 'You have no pending tasks. Create one to get started.'}
               </ThemedText>
               <TouchableOpacity
                 style={styles.emptyStateButton}
-                onPress={() => { resetTaskForm(); setModalVisible(true); }}
+                onPress={hasActiveFilters ? clearFilters : () => { resetTaskForm(); setModalVisible(true); }}
               >
                 <LinearGradient
                   colors={[colors.primary, Colors.gradientEnd]}
@@ -606,90 +957,125 @@ export default function DashboardScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.emptyStateButtonGradient}
                 >
-                  <Text style={{ fontSize: 16 }}>➕</Text>
-                  <ThemedText variant="titleSmall" color={colors.onPrimary}>Create Your First Task</ThemedText>
+                  <Text style={{ fontSize: 16 }}>{hasActiveFilters ? '↺' : '➕'}</Text>
+                  <ThemedText variant="titleSmall" color={colors.onPrimary}>
+                    {hasActiveFilters ? 'Clear Filters' : 'Create Your First Task'}
+                  </ThemedText>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
           }
-          renderItem={({ item }) => (
-            <GlassCard style={styles.taskCard} gradient>
-              <View style={styles.taskHeader}>
-                <View style={[styles.priorityIndicator, { backgroundColor: getPriorityColor(item.priority) }]} />
-                <ThemedText variant="titleMedium" style={[styles.taskTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                  {item.title}
-                </ThemedText>
-                <View style={styles.taskActions}>
-                  <TouchableOpacity onPress={() => openEditModal(item)} style={styles.actionButton}>
-                    <Text style={{ fontSize: 16 }}>✏️</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => openDeleteModal(item)} style={styles.actionButton}>
-                    <Text style={{ fontSize: 16 }}>🗑️</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+          renderItem={({ item }) => {
+            const totalPomodoros = Math.max(1, item.estimated_pomodoros);
+            const completedPomodoros = Math.min(item.completed_pomodoros, totalPomodoros);
+            const remainingPomodoros = Math.max(0, item.estimated_pomodoros - item.completed_pomodoros);
+            const progressPercent = Math.min((completedPomodoros / totalPomodoros) * 100, 100);
+            const statusLabel = item.status.replace('_', ' ');
 
-              {item.focus_tags && item.focus_tags.length > 0 && (
-                <View style={styles.tagsRow}>
-                  {item.focus_tags.map((tag, idx) => (
-                    <View key={idx} style={[styles.tagChip, { backgroundColor: `${colors.primary}20` }]}>
-                      <ThemedText variant="labelSmall" color={colors.primary}>{tag}</ThemedText>
+            return (
+              <GlassCard style={styles.taskCard} gradient>
+                <View style={styles.taskHeader}>
+                  <View style={styles.taskTitleGroup}>
+                    <View style={styles.taskTitleRow}>
+                      <View style={[styles.priorityIndicator, { backgroundColor: getPriorityColor(item.priority) }]} />
+                      <ThemedText variant="titleMedium" style={[styles.taskTitle, { color: colors.onSurface }]} numberOfLines={2}>
+                        {item.title}
+                      </ThemedText>
                     </View>
-                  ))}
+                    <View style={styles.taskPillsRow}>
+                      <View style={[styles.statusBadge, { backgroundColor: `${colors.primary}18`, borderColor: `${colors.primary}55` }]}>
+                        <ThemedText variant="labelSmall" color={colors.primary} style={styles.capitalizeText}>
+                          {statusLabel}
+                        </ThemedText>
+                      </View>
+                      <View style={[styles.priorityBadge, { backgroundColor: `${getPriorityColor(item.priority)}22`, borderColor: `${getPriorityColor(item.priority)}66` }]}>
+                        <ThemedText variant="labelSmall" color={getPriorityColor(item.priority)}>
+                          Priority {item.priority}
+                        </ThemedText>
+                      </View>
+                      {item.category && (
+                        <View style={[styles.categoryBadge, { backgroundColor: item.category.color + '25', borderColor: item.category.color + '66' }]}>
+                          <View style={[styles.categoryDot, { backgroundColor: item.category.color }]} />
+                          <ThemedText variant="labelSmall" color={item.category.color}>
+                            {item.category.name}
+                          </ThemedText>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.taskActions}>
+                    <TouchableOpacity onPress={() => openEditModal(item)} style={[styles.actionButton, { backgroundColor: colors.surfaceContainer }]}>
+                      <Text style={{ fontSize: 16 }}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => openDeleteModal(item)} style={[styles.actionButton, { backgroundColor: colors.surfaceContainer }]}>
+                      <Text style={{ fontSize: 16 }}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              )}
 
-              {item.description && (
-                <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} numberOfLines={2}>
-                  {item.description}
-                </ThemedText>
-              )}
+                {item.description && (
+                  <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} numberOfLines={2} style={styles.taskDescription}>
+                    {item.description}
+                  </ThemedText>
+                )}
 
-              <View style={styles.taskMeta}>
-                <View style={styles.metaItem}>
-                  <Text style={{ fontSize: 14 }}>⏱️</Text>
+                {item.focus_tags && item.focus_tags.length > 0 && (
+                  <View style={styles.tagsRow}>
+                    {item.focus_tags.map((tag, idx) => (
+                      <View key={idx} style={[styles.tagChip, { backgroundColor: `${colors.primary}20` }]}>
+                        <ThemedText variant="labelSmall" color={colors.primary}>{tag}</ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.progressSummary}>
+                  <View>
+                    <ThemedText variant="labelMedium" color={colors.onSurface}>
+                      {completedPomodoros}/{item.estimated_pomodoros} pomodoros
+                    </ThemedText>
+                    <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                      {remainingPomodoros === 0 ? 'Complete' : `${remainingPomodoros} remaining`}
+                    </ThemedText>
+                  </View>
                   <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>
-                    {item.completed_pomodoros}/{item.estimated_pomodoros}
+                    {Math.round(progressPercent)}%
                   </ThemedText>
                 </View>
-                <View style={styles.metaItem}>
-                  <Text style={{ fontSize: 14 }}>⚡</Text>
-                  <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>
-                    {item.energy_level.charAt(0).toUpperCase() + item.energy_level.slice(1)}
-                  </ThemedText>
+
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarTrack, { backgroundColor: colors.surfaceContainerHigh }]}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${progressPercent}%`,
+                          backgroundColor: item.category?.color || colors.primary,
+                        }
+                      ]}
+                    />
+                  </View>
                 </View>
-                {item.deadline && (
+
+                <View style={styles.taskMeta}>
                   <View style={styles.metaItem}>
-                    <Text style={{ fontSize: 14 }}>📅</Text>
+                    <Text style={{ fontSize: 14 }}>⚡</Text>
                     <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>
-                      {new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {item.energy_level.charAt(0).toUpperCase() + item.energy_level.slice(1)} energy
                     </ThemedText>
                   </View>
-                )}
-                {item.category && (
-                  <View style={[styles.categoryBadge, { backgroundColor: item.category.color + '25' }]}>
-                    <ThemedText variant="labelSmall" color={item.category.color}>
-                      {item.category.name}
-                    </ThemedText>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.progressBarContainer}>
-                <View style={styles.progressBarTrack}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: `${Math.min((item.completed_pomodoros / item.estimated_pomodoros) * 100, 100)}%`,
-                        backgroundColor: item.category?.color || colors.primary,
-                      }
-                    ]}
-                  />
+                  {item.deadline && (
+                    <View style={styles.metaItem}>
+                      <Text style={{ fontSize: 14 }}>📅</Text>
+                      <ThemedText variant="labelMedium" color={colors.onSurfaceVariant}>
+                        Due {new Date(item.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </ThemedText>
+                    </View>
+                  )}
                 </View>
-              </View>
-            </GlassCard>
-          )}
+              </GlassCard>
+            );
+          }}
         />
       </LinearGradient>
 
@@ -766,27 +1152,6 @@ export default function DashboardScreen() {
                 ))}
               </View>
 
-              <ThemedText variant="labelLarge" style={styles.label}>Estimated Pomodoros</ThemedText>
-              <View style={styles.counterRow}>
-                <TouchableOpacity
-                  style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'dec' && { backgroundColor: Colors.primary }]}
-                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: Math.max(1, newTask.estimated_pomodoros - 1) })}
-                  onPressIn={() => setCounterPressed('dec')}
-                  onPressOut={() => setCounterPressed(null)}
-                >
-                  <Text style={{ fontSize: 24 }}>➖</Text>
-                </TouchableOpacity>
-                <ThemedText variant="displaySmall" color={colors.onSurface}>{newTask.estimated_pomodoros}</ThemedText>
-                <TouchableOpacity
-                  style={[styles.counterButton, { backgroundColor: colors.surfaceContainer }, counterPressed === 'inc' && { backgroundColor: Colors.primary }]}
-                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: newTask.estimated_pomodoros + 1 })}
-                  onPressIn={() => setCounterPressed('inc')}
-                  onPressOut={() => setCounterPressed(null)}
-                >
-                  <Text style={{ fontSize: 24 }}>➕</Text>
-                </TouchableOpacity>
-              </View>
-
               <ThemedText variant="labelLarge" style={styles.label}>Energy Level</ThemedText>
               <View style={styles.energyRow}>
                 {(['low', 'medium', 'high'] as const).map((level) => (
@@ -812,8 +1177,29 @@ export default function DashboardScreen() {
                 ))}
               </View>
 
-              <ThemedText variant="labelLarge" style={styles.label}>Focus Tags (comma separated)</ThemedText>
-              <TextInput
+              <ThemedText variant="labelLarge" style={styles.label}>Pomodoros Needed 🍅</ThemedText>
+              <View style={styles.stepperRow}>
+                <TouchableOpacity
+                  style={[styles.stepperButton, { backgroundColor: colors.surfaceContainer }]}
+                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: Math.max(1, newTask.estimated_pomodoros - 1) })}
+                >
+                  <Text style={{ fontSize: 20, color: colors.onSurface }}>−</Text>
+                </TouchableOpacity>
+                <View style={[styles.stepperValue, { backgroundColor: colors.surfaceContainerLow }]}>
+                  <ThemedText variant="titleLarge" color={colors.onSurface}>{newTask.estimated_pomodoros}</ThemedText>
+                  <ThemedText variant="labelSmall" color={colors.onSurfaceVariant}>
+                    {newTask.estimated_pomodoros === 1 ? 'session' : 'sessions'}
+                  </ThemedText>
+                </View>
+                <TouchableOpacity
+                  style={[styles.stepperButton, { backgroundColor: colors.surfaceContainer }]}
+                  onPress={() => setNewTask({ ...newTask, estimated_pomodoros: Math.min(20, newTask.estimated_pomodoros + 1) })}
+                >
+                  <Text style={{ fontSize: 20, color: colors.onSurface }}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ThemedText variant="labelLarge" style={styles.label}>Focus Tags (comma separated)</ThemedText>              <TextInput
                 style={[styles.input, { color: colors.onSurface, backgroundColor: colors.surfaceContainer }]}
                 value={tagInput}
                 onChangeText={setTagInput}
@@ -931,7 +1317,7 @@ export default function DashboardScreen() {
             <ThemedText variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.deleteModalMessage}>
               Are you sure you want to delete{' '}
               <ThemedText variant="bodyMedium" color={colors.onSurface} style={{ fontWeight: '700' }}>
-                "{taskToDelete?.title}"
+                &ldquo;{taskToDelete?.title}&rdquo;
               </ThemedText>
               ?{'\n\n'}This action cannot be undone. Your session history will be preserved.
             </ThemedText>
@@ -1009,20 +1395,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.sm,
   },
-  categoryScroll: {
+  taskControls: {
+    gap: Spacing.md,
     marginBottom: Spacing.md,
   },
-  categoryChip: {
+  taskListHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  taskListTitleBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  clearFiltersButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  filterRows: {
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: Typography.bodyMedium.fontFamily,
+    fontSize: Typography.bodyMedium.fontSize,
+    paddingVertical: Spacing.sm,
+  },
+  searchClearButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterScroll: {
+    marginHorizontal: -Spacing.lg,
+  },
+  filterContent: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: 12,
     backgroundColor: Colors.surfaceContainer,
-    marginRight: Spacing.sm,
     gap: Spacing.xs,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: Colors.outlineVariant,
   },
   categoryChipActive: {
     backgroundColor: Colors.primary,
@@ -1063,26 +1499,64 @@ const styles = StyleSheet.create({
   },
   taskHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: Spacing.md,
     marginBottom: Spacing.sm,
+  },
+  taskTitleGroup: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  taskTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
   },
   priorityIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    marginTop: 8,
   },
   taskTitle: {
     flex: 1,
     color: Colors.onSurface,
   },
+  taskPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  statusBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  priorityBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  capitalizeText: {
+    textTransform: 'capitalize',
+  },
   taskActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.xs,
   },
   actionButton: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  taskDescription: {
+    marginBottom: Spacing.sm,
   },
   tagsRow: {
     flexDirection: 'row',
@@ -1108,17 +1582,29 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  progressSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+    marginTop: Spacing.sm,
   },
   progressBarContainer: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.sm,
   },
   progressBarTrack: {
-    height: 6,
+    height: 8,
     backgroundColor: Colors.surfaceContainerHigh,
-    borderRadius: 3,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -1218,27 +1704,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-  counterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.lg,
-    marginVertical: Spacing.sm,
-  },
-  counterButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surfaceContainer,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-  },
-  counterButtonPressed: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
 
   colorPicker: {
     flexDirection: 'row',
@@ -1288,33 +1753,75 @@ const styles = StyleSheet.create({
   scheduleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
+  },
+  scheduleTitleBlock: {
+    flex: 1,
+    minWidth: 180,
+    gap: 2,
+  },
+  scheduleHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
   },
   acceptedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: 12,
+    borderWidth: 1,
     backgroundColor: `${Colors.success}20`,
+  },
+  regenerateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
   },
   scheduleCard: {
     padding: Spacing.md,
+  },
+  scheduleSummaryBar: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  scheduleSummaryItem: {
+    flex: 1,
+    padding: Spacing.sm,
+    borderRadius: 12,
+    backgroundColor: `${Colors.surfaceContainerHigh}55`,
+    gap: 2,
+  },
+  schedulePreviewList: {
+    gap: Spacing.sm,
   },
   scheduleEntry: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 12,
   },
   scheduleTime: {
-    width: 70,
+    width: 76,
     alignItems: 'flex-start',
   },
   scheduleDivider: {
     width: 1,
-    height: '100%',
+    height: 36,
     backgroundColor: Colors.outlineVariant,
     marginHorizontal: Spacing.md,
   },
@@ -1329,6 +1836,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: 8,
+  },
+  scheduleToggleButton: {
+    marginTop: Spacing.md,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
   },
   scheduleActions: {
     flexDirection: 'row',
@@ -1477,5 +1994,27 @@ const styles = StyleSheet.create({
   },
   categoryFormSection: {
     marginTop: Spacing.md,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  stepperButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+  },
+  stepperValue: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderRadius: 12,
+    gap: 2,
   },
 });

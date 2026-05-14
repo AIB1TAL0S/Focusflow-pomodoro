@@ -59,11 +59,14 @@ export interface DailySchedule {
   accepted: boolean;
 }
 
+export type ScheduleEntryType = 'focus' | 'short_break' | 'long_break';
+
 export interface ScheduleEntry {
-  task_id: string;
+  task_id: string | null;
   start_time: string;
   duration: number;
   pomodoro_count: number;
+  type: ScheduleEntryType;
 }
 
 export interface UserPreferences {

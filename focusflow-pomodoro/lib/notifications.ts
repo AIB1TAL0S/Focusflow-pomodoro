@@ -1,9 +1,12 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
+const isNative = Platform.OS !== 'web';
 
 // Configure notification handling (only on native platforms)
-if (Device.osName) {
+if (isNative) {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
@@ -16,7 +19,7 @@ if (Device.osName) {
 }
 
 export async function registerForPushNotificationsAsync() {
-  if (!Device.isDevice || !Device.osName) {
+  if (!isNative || !Device.isDevice) {
     console.log('Must use physical device for push notifications');
     return null;
   }
@@ -56,7 +59,7 @@ export async function schedulePomodoroNotification(
   seconds: number
 ) {
   try {
-    if (!Device.osName) return;
+    if (!isNative) return;
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
@@ -76,7 +79,7 @@ export async function schedulePomodoroNotification(
 
 export async function cancelScheduledNotifications() {
   try {
-    if (!Device.osName) return;
+    if (!isNative) return;
     await Notifications.cancelAllScheduledNotificationsAsync();
   } catch (error) {
     console.error('Error canceling notifications:', error);
@@ -85,7 +88,7 @@ export async function cancelScheduledNotifications() {
 
 export async function sendImmediateNotification(title: string, body: string) {
   try {
-    if (!Device.osName) return;
+    if (!isNative) return;
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
