@@ -15,7 +15,12 @@ export async function generateSchedule(
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({ tasks, preferences, date }),
+        body: JSON.stringify({ 
+          tasks, 
+          preferences, 
+          date,
+          currentHour: new Date().getHours() 
+        }),
       }
     );
 

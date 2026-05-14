@@ -53,14 +53,24 @@ function calculatePriorityScore(task: Task): number {
   return score;
 }
 
-function greedySchedule(tasks: Task[], prefs: UserPreferences): ScheduleEntry[] {
+function greedySchedule(tasks: Task[], prefs: UserPreferences, currentHour?: number): ScheduleEntry[] {
   const sortedTasks = [...tasks]
     .filter(t => t.status === 'pending' || t.status === 'scheduled')
     .sort((a, b) => calculatePriorityScore(b) - calculatePriorityScore(a));
   
   const schedule: ScheduleEntry[] = [];
   let currentTime = new Date();
-  currentTime.setHours(9, 0, 0, 0); // Start at 9 AM
+  
+  // Use user's local hour if provided, otherwise use server time
+  const userHour = currentHour ?? currentTime.getHours();
+  
+  // If before 9 AM or no hour provided, start at 9 AM
+  if (userHour < 9) {
+    currentTime.setHours(9, 0, 0, 0);
+  } else {
+    // Start at the next hour boundary from current time
+    currentTime.setHours(userHour, 0, 0, 0);
+  }
   
   let sessionCount = 0;
   
@@ -134,25 +144,48 @@ function localSearchOptimize(schedule: ScheduleEntry[], tasks: Task[]): Schedule
 }
 
 Deno.serve(async (req: Request) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
+  }
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
     });
   }
 
   try {
-    const { tasks, preferences, date } = await req.json();
-    
+    const { tasks, preferences, date, currentHour } = await req.json();
+      
     if (!tasks || !Array.isArray(tasks)) {
       return new Response(JSON.stringify({ error: 'Tasks array required' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
       });
     }
     
-    const schedule = greedySchedule(tasks, preferences);
+    const schedule = greedySchedule(tasks, preferences, currentHour);
     const optimizedSchedule = localSearchOptimize(schedule, tasks);
+    
+    // Sort by start_time to ensure chronological order after optimization swaps
+    optimizedSchedule.sort((a, b) => 
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    );
     
     return new Response(
       JSON.stringify({
@@ -162,7 +195,10 @@ Deno.serve(async (req: Request) => {
         total_focus_minutes: optimizedSchedule.reduce((sum: number, s: ScheduleEntry) => sum + s.duration, 0),
       }),
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
       }
     );
   } catch (error) {
@@ -170,7 +206,10 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: error.message }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
       }
     );
   }

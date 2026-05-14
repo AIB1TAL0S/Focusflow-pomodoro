@@ -554,9 +554,9 @@ export default function DashboardScreen() {
                   style={[styles.categoryChip, !filteredCategory && styles.categoryChipActive, { backgroundColor: colors.surfaceContainer }]}
                   onPress={() => setFilteredCategory(null)}
                 >
-<ThemedText variant="labelMedium" color={colors.onSurface}>
-                      All
-                    </ThemedText>
+                  <ThemedText variant="labelMedium" color={colors.onSurface}>
+                    All
+                  </ThemedText>
                 </TouchableOpacity>
                 {categories.map((cat) => (
                   <TouchableOpacity
@@ -830,7 +830,7 @@ export default function DashboardScreen() {
                   onPress={saveTask}
                   onPressIn={() => setTaskSavePressed(true)}
                   onPressOut={() => setTaskSavePressed(false)}>
-                  <ThemedText variant="titleSmall" color={taskSavePressed ? colors.onPrimary : colors.onSurface}>{editingTaskId ? 'Update Task' : 'Save Task'}</ThemedText>
+                  <ThemedText variant="titleSmall" color={colors.onPrimary}>{editingTaskId ? 'Update Task' : 'Save Task'}</ThemedText>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -908,7 +908,7 @@ export default function DashboardScreen() {
                   onPress={saveCategory}
                   onPressIn={() => setCategorySavePressed(true)}
                   onPressOut={() => setCategorySavePressed(false)}>
-                  <ThemedText variant="titleSmall" color={categorySavePressed ? colors.onPrimary : colors.onSurface}>
+                  <ThemedText variant="titleSmall" color={colors.onPrimary}>
                     {editingCategoryId ? 'Update' : 'Create'}
                   </ThemedText>
                 </TouchableOpacity>

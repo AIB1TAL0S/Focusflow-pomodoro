@@ -6,7 +6,6 @@ import {
   Animated,
   Alert,
   ScrollView,
-  Vibration,
   Text,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -14,13 +13,12 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { schedulePomodoroNotification, cancelScheduledNotifications } from '@/lib/notifications';
 import { Task, PomodoroSession } from '@/types/database';
 import { ThemedText } from '@/components/ThemedText';
 import { GlassCard } from '@/components/GlassCard';
 import { useThemeColors } from '@/hooks/use-theme-colors';
 import { Colors, Spacing, Shadows } from '@/constants/theme';
-import * as Haptics from 'expo-haptics';
+import { usePomodoroTimer } from '@/hooks/use-pomodoroTimer';
 
 export default function TimerScreen() {
   const { user, preferences } = useAuth();
@@ -277,14 +275,10 @@ export default function TimerScreen() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isBreak, setIsBreak] = useState(false);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<PomodoroSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [historyPeriod, setHistoryPeriod] = useState<Period>('daily');
+  const [sessions, setSessions] = useState<PomodoroSession[]>([]);
+  const [todaySessionCount, setTodaySessionCount] = useState(0);
 
   const isWeeklyComplete = useCallback(() => {
     const now = new Date();
@@ -316,31 +310,36 @@ export default function TimerScreen() {
   const autoStartBreaks = preferences?.auto_start_breaks || false;
 
   const progress = useRef(new Animated.Value(1)).current;
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const {
+    timeLeft,
+    isRunning,
+    isBreak,
+    sessionCount,
+    start: startTimer,
+    pause: pauseTimer,
+    stop: stopTimer,
+    skip: skipSession,
+    skipBreak,
+  } = usePomodoroTimer(
+    focusDuration,
+    shortBreak,
+    longBreak,
+    pomodorosBeforeLong,
+    autoStartBreaks,
+    selectedTask,
+    user,
+    todaySessionCount,
+    () => fetchSessions(historyPeriod)
+  );
 
   useFocusEffect(
     useCallback(() => {
       fetchTasks();
+      fetchTodaySessionCount();
       fetchSessions(historyPeriod);
     }, [user, historyPeriod])
   );
-
-  useEffect(() => {
-    if (isRunning && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            handleComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRunning, timeLeft]);
 
   useEffect(() => {
     const totalTime = isBreak
@@ -365,12 +364,23 @@ export default function TimerScreen() {
     setTasks(data || []);
   };
 
+  const fetchTodaySessionCount = async () => {
+    if (!user) return;
+    const today = new Date().toISOString().split('T')[0];
+    const { count } = await supabase
+      .from('pomodoro_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('status', 'completed')
+      .gte('start_time', `${today}T00:00:00.000Z`);
+    setTodaySessionCount(count || 0);
+  };
+
   const fetchSessions = async (period: Period) => {
     if (!user) return;
 
     if (!shouldShowData(period)) {
       setSessions([]);
-      setSessionCount(0);
       return;
     }
 
@@ -400,142 +410,25 @@ export default function TimerScreen() {
       .gte('start_time', `${startDate}T00:00:00.000Z`)
       .order('start_time', { ascending: false });
     setSessions(data || []);
-    setSessionCount((data || []).filter(s => s.status === 'completed').length);
   };
 
-  const handleComplete = async () => {
-    setIsRunning(false);
-    if (timerRef.current) clearInterval(timerRef.current);
+  const handleSkipSession = useCallback(() => {
+    if (!isRunning || isBreak) return;
+    if (!selectedTask) return;
 
-    // Cancel scheduled notification on complete
-    await cancelScheduledNotifications().catch(console.error);
-
-    // Haptic feedback
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Vibration.vibrate([0, 500, 200, 500]);
-
-    if (!isBreak && currentSessionId) {
-      const actualDuration = Math.round((focusDuration - timeLeft) / 60);
-      await supabase
-        .from('pomodoro_sessions')
-        .update({
-          status: 'completed',
-          end_time: new Date().toISOString(),
-          actual_duration: actualDuration,
-        })
-        .eq('id', currentSessionId);
-
-      if (selectedTask) {
-        const newCompleted = selectedTask.completed_pomodoros + 1;
-        await supabase
-          .from('tasks')
-          .update({
-            completed_pomodoros: newCompleted,
-            status: newCompleted >= selectedTask.estimated_pomodoros ? 'completed' : 'in_progress',
-          })
-          .eq('id', selectedTask.id);
-
-        // Update local selected task
-        setSelectedTask({
-          ...selectedTask,
-          completed_pomodoros: newCompleted,
-          status: newCompleted >= selectedTask.estimated_pomodoros ? 'completed' : 'in_progress',
-        });
-      }
-
-      setSessionCount((prev) => prev + 1);
-    }
-
-    // Switch to break or back to focus
-    const nextIsBreak = !isBreak;
-    setIsBreak(nextIsBreak);
-
-    const breakDuration =
-      sessionCount % pomodorosBeforeLong === 0 && sessionCount > 0
-        ? longBreak
-        : shortBreak;
-    setTimeLeft(nextIsBreak ? breakDuration : focusDuration);
-
-    fetchSessions(historyPeriod);
-
-    // Auto-start break if enabled
-    if (nextIsBreak && autoStartBreaks) {
-      setTimeout(() => {
-        setIsRunning(true);
-      }, 1000);
-    }
-  };
-
-  const startTimer = async () => {
-    if (!selectedTask && !isBreak) {
-      Alert.alert('Select a Task', 'Please select a task to focus on');
-      return;
-    }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsRunning(true);
-
-    // Cancel any existing notifications and schedule new one for timer completion
-    await cancelScheduledNotifications();
-    const totalSeconds = isBreak ? (sessionCount % pomodorosBeforeLong === 0 && sessionCount > 0 ? longBreak : shortBreak) : focusDuration;
-    await schedulePomodoroNotification(
-      isBreak ? 'Break Complete' : 'Focus Session Complete',
-      isBreak ? 'Ready to return to focus?' : `Completed session on ${selectedTask?.title || 'your task'}`,
-      Math.max(1, totalSeconds)
-    ).catch(console.error);
-
-    if (!isBreak && selectedTask) {
-      const { data } = await supabase
-        .from('pomodoro_sessions')
-        .insert({
-          user_id: user?.id,
-          task_id: selectedTask.id,
-          start_time: new Date().toISOString(),
-          planned_duration: focusDuration / 60,
-          session_number: sessionCount + 1,
-        })
-        .select()
-        .single();
-      if (data) setCurrentSessionId(data.id);
-    }
-  };
-
-  const pauseTimer = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsRunning(false);
-  };
-
-  const stopTimer = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setIsRunning(false);
-    if (timerRef.current) clearInterval(timerRef.current);
-
-    // Cancel scheduled notification on stop
-    await cancelScheduledNotifications().catch(console.error);
-
-    if (currentSessionId) {
-      const actualDuration = Math.round((focusDuration - timeLeft) / 60);
-      await supabase
-        .from('pomodoro_sessions')
-        .update({
-          status: 'cancelled',
-          end_time: new Date().toISOString(),
-          actual_duration: actualDuration,
-        })
-        .eq('id', currentSessionId);
-    }
-
-    setTimeLeft(isBreak ? shortBreak : focusDuration);
-    setIsBreak(false);
-    setCurrentSessionId(null);
-    fetchSessions(historyPeriod);
-  };
-
-  const skipBreak = () => {
-    setIsBreak(false);
-    setTimeLeft(focusDuration);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+    Alert.alert(
+      'Skip Session',
+      'Are you sure you want to skip this session?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Skip',
+          style: 'destructive',
+          onPress: () => skipSession(),
+        },
+      ]
+    );
+  }, [isRunning, isBreak, selectedTask, skipSession]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -698,7 +591,7 @@ export default function TimerScreen() {
                     ? `You've completed ${pomodorosBeforeLong} sessions! Time for a longer break.`
                     : 'Step away from the screen. Stretch, hydrate, rest your eyes.'}
                 </ThemedText>
-                <TouchableOpacity onPress={skipBreak} style={styles.skipBreakButton}>
+                <TouchableOpacity onPress={async () => await skipBreak()} style={styles.skipBreakButton}>
                   <ThemedText variant="labelLarge" color={colors.onSurface}>Skip Break</ThemedText>
                 </TouchableOpacity>
               </GlassCard>
@@ -723,6 +616,11 @@ export default function TimerScreen() {
                 <TouchableOpacity style={styles.controlButton} onPress={pauseTimer}>
                   <Text style={{ fontSize: 28 }}>⏸️</Text>
                 </TouchableOpacity>
+{!isBreak && (
+                  <TouchableOpacity style={[styles.controlButton, { backgroundColor: `${Colors.warning}20` }]} onPress={handleSkipSession}>
+                    <Text style={{ fontSize: 20 }}>⏭️</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={[styles.controlButton, styles.stopButton]} onPress={stopTimer}>
                   <Text style={{ fontSize: 28 }}>⏹️</Text>
                 </TouchableOpacity>
